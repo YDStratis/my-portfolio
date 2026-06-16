@@ -317,6 +317,44 @@
       .timeline-item { grid-template-columns: 1fr; gap: 0.5rem; }
       .hero-stats { gap: 2rem; }
     }
+
+    /* ── HERO SCROLL ANIMATION ── */
+    #hero-scrollzone { height: 300vh; }
+    #hero {
+      position: sticky !important;
+      top: 0 !important;
+      height: 100vh !important;
+      min-height: unset !important;
+    }
+    #hero-canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+    }
+    #hero-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(105deg, rgba(10,10,15,0.88) 35%, rgba(10,10,15,0.18) 100%);
+      pointer-events: none; z-index: 1;
+    }
+    #hero .hero-glow, #hero .hero-glow2 { z-index: 1; }
+    #hero .hero-inner { z-index: 2; }
+    #hero-loading {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: var(--bg); z-index: 10;
+      font-family: 'DM Mono', monospace; font-size: 0.78rem;
+      color: var(--muted); gap: 1rem;
+      transition: opacity 0.5s ease;
+    }
+    .load-bar {
+      width: 180px; height: 2px;
+      background: var(--border); border-radius: 2px; overflow: hidden;
+    }
+    .load-fill {
+      height: 100%; width: 0%;
+      background: var(--accent); border-radius: 2px;
+      transition: width 0.1s linear;
+    }
   </style>
 </head>
 <body>
@@ -334,7 +372,14 @@
   </nav>
 
   <!-- HERO -->
+  <div id="hero-scrollzone">
   <section id="hero" style="max-width:none; padding-left:3rem; padding-right:3rem;">
+    <canvas id="hero-canvas"></canvas>
+    <div id="hero-overlay"></div>
+    <div id="hero-loading">
+      <span>Loading space...</span>
+      <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
+    </div>
     <div class="hero-glow"></div>
     <div class="hero-glow2"></div>
     <div class="hero-inner">
@@ -370,6 +415,8 @@
       </div>
     </div>
   </section>
+  <video id="hero-video" src="space.mp4" muted preload="auto" playsinline style="display:none;"></video>
+  </div>
 
   <!-- ABOUT -->
   <section id="about">
@@ -602,6 +649,85 @@
       });
     }, { threshold: 0.1 });
     document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
+
+  <script>
+    (function () {
+      const FRAME_COUNT = 100;
+
+      const video     = document.getElementById('hero-video');
+      const canvas    = document.getElementById('hero-canvas');
+      const ctx       = canvas.getContext('2d');
+      const loadFill  = document.getElementById('load-fill');
+      const loadEl    = document.getElementById('hero-loading');
+      const scrollzone = document.getElementById('hero-scrollzone');
+
+      let frames = [];
+      let framesReady = false;
+      let currentIdx = 0;
+
+      function resizeCanvas() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+        if (framesReady) drawFrame(currentIdx);
+      }
+
+      function drawFrame(idx) {
+        if (!frames[idx]) return;
+        currentIdx = idx;
+        const f  = frames[idx];
+        const cw = canvas.width,  ch = canvas.height;
+        const fw = f.width,       fh = f.height;
+        const progress = idx / Math.max(frames.length - 1, 1);
+        const zoom  = 1 + progress * 0.08;
+        const scale = Math.max(cw / fw, ch / fh) * zoom;
+        const sw = fw * scale, sh = fh * scale;
+        ctx.drawImage(f, (cw - sw) / 2, (ch - sh) / 2, sw, sh);
+      }
+
+      async function extractFrames() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const duration = video.duration;
+        const tmp = document.createElement('canvas');
+        tmp.width  = video.videoWidth;
+        tmp.height = video.videoHeight;
+        const tmpCtx = tmp.getContext('2d');
+
+        for (let i = 0; i < FRAME_COUNT; i++) {
+          video.currentTime = (i / (FRAME_COUNT - 1)) * duration;
+          await new Promise(r => video.addEventListener('seeked', r, { once: true }));
+          tmpCtx.drawImage(video, 0, 0);
+          frames.push(await createImageBitmap(tmp));
+          loadFill.style.width = ((i + 1) / FRAME_COUNT * 100) + '%';
+        }
+
+        framesReady = true;
+        loadEl.style.opacity = '0';
+        setTimeout(() => { loadEl.style.display = 'none'; }, 520);
+        drawFrame(0);
+      }
+
+      function onScroll() {
+        if (!framesReady) return;
+        const rect     = scrollzone.getBoundingClientRect();
+        const scrolled = -rect.top;
+        const maxScroll = scrollzone.offsetHeight - window.innerHeight;
+        const progress  = Math.max(0, Math.min(1, scrolled / maxScroll));
+        const idx = Math.round(progress * (frames.length - 1));
+        if (idx !== currentIdx) drawFrame(idx);
+      }
+
+      window.addEventListener('resize', resizeCanvas);
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      if (video.readyState >= 1) {
+        extractFrames();
+      } else {
+        video.addEventListener('loadedmetadata', extractFrames, { once: true });
+      }
+    })();
   </script>
 </body>
 </html>
